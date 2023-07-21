@@ -106,18 +106,30 @@ let handle_output (o : Toplevel_api.exec_result) =
   let out = El.div output_elements in
   El.append_children output [ out ]
 
+let strip_prefix ~prefix s =
+  let open Jstr in
+  if starts_with ~prefix s then
+    let l = length prefix in
+    Some (sub ~start:l ~len:(length s - l) s)
+  else None
+
 module Codec = struct
   let ( let+ ) = Result.bind
 
   let from_window () =
     let uri = Window.location G.window |> Uri.fragment in
-    match Uri.Params.find (Jstr.v "code") (Uri.Params.of_jstr uri) with
-    | Some jstr ->
-        Result.to_option
-        @@ let+ dec = Base64.decode jstr in
-           let+ code = Base64.data_utf_8_to_jstr dec in
-           Ok (Jstr.to_string code)
-    | None -> None
+    let uri_prefix p = strip_prefix ~prefix:(Jstr.v p) uri in
+    let code_jstr =
+      match (uri_prefix "code=", uri_prefix "rawcode=") with
+      | Some base64_jstr, _ ->
+          Result.to_option
+          @@ let+ dec = Base64.decode base64_jstr in
+             let+ code = Base64.data_utf_8_to_jstr dec in
+             Ok code
+      | _, Some rawcode_jstr -> Some rawcode_jstr
+      | _ -> None
+    in
+    Option.map Jstr.to_string code_jstr
 
   let to_window s =
     let data = Base64.data_utf_8_of_jstr s in
